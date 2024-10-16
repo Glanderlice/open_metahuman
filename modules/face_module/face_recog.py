@@ -104,6 +104,15 @@ class SimpleFaceDB:
         else:
             return _ann_top_k(vector, k, self.face_index)
 
+    def rename(self, old_name: str, new_name: str):
+        """人脸重命名：old_name -> new_name"""
+        if old_name in self.face_index and new_name and new_name not in self.face_index:
+            self.face_index[new_name] = self.face_index[old_name]
+            del self.face_index[old_name]
+            return True
+        else:
+            return False
+
     def get(self, pid):
         """通过person_id返回人脸数据"""
         return self.face_index.get(pid, None)
@@ -152,8 +161,9 @@ class SimpleFaceDB:
                 loaded_dict = pickle.load(file)
                 if loaded_dict:
                     self.face_index = loaded_dict
+                    print(f'{len(self.face_index)} data load from {db_path}')
                 else:
-                    print(f'no data in db to load from {db_path}')
+                    print(f'no data load from {db_path}')
         else:
             print(f'db file {db_path} not exist')
 
@@ -183,7 +193,6 @@ class FaceRecognizer:
     #             suc += 1
     #         # if debug:
     #         #     cv2.imwrite('D:/PycharmProjects/aurora-studio/data/image/face_section.jpg', face.picture)
-    #         #     print(f'face in frame at {position} written {"success" if state else "fail"}: {info}')
     #     return suc
 
     def learn(self, face: Face):
@@ -299,10 +308,6 @@ class FaceRecognizer:
         return top_k
 
     def clear(self):
-        self.facedb.clear()
-        self.tracker.clear()
-
-    def clear_tracker(self):
         self.tracker.clear()
 
 

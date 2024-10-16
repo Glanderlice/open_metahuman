@@ -47,9 +47,12 @@ class ArcFaceOnnx(FaceModel):
     def apply(self, faces: List[Face] = None, src_img: np.ndarray = None, extra: Dict[str, Any] = None) -> List[Face]:
         if faces:
             for face in faces:
-                aligned_face = self.crop_align(src_img, face.kps)  # 裁剪->校正
-                face.face_img = aligned_face
-                vec = self.vectorize(aligned_face)  # 再向量化
+                aligned_face = face.face_img
+                if aligned_face is None:  # 如果没有aligned人脸图片,则重新根据kps生成
+                    aligned_face = self.crop_align(src_img, face.kps)  # 裁剪->校正
+                    face.face_img = aligned_face
+                # aligned人脸图片->向量化
+                vec = self.vectorize(aligned_face)
                 face.vec = vec.flatten()
         return faces
 

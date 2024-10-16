@@ -1,6 +1,6 @@
 import os
 from pathlib import Path
-from typing import List, Tuple
+from typing import List, Tuple, Union
 
 import cv2
 import numpy as np
@@ -83,39 +83,87 @@ def click_face_scan_btn(image_data, video_file, sampling_fps, sampling_range, ke
     pass
 
 
-if __name__ == '__main__':
-    app_root = Path(__file__).parent.parent
-    model_root = app_root / 'models/face_detect'
+class Engine:
+    def __init__(self):
+        self.processor = None
+        self.recognizer = None
+        self.swapper = None
+        self.enhancer = None
+
+
+def start_engine(model_root: Union[str, Path], facedb_path: Union[str, Path] = None):
+    # 1.人脸检测模型
+    # 1) 人脸检测
     detector = RetinaFaceOnnx(model_file=model_root / 'det_10g.onnx', device='cpu', det_size=(640, 640),
                               max_faces=5)  # 人脸检测
+    # 2) 关键点标记
     landmarker = Landmark3d68ONNX(model_file=model_root / '1k3d68.onnx', device='cpu')  # 关键点标记
+    # 3) 向量化
     embedder = ArcFaceOnnx(model_file=model_root / 'w600k_r50.onnx', device='cpu')  # 人脸向量化
 
-    engine = FaceProcessor()
-    engine.add_model(detector)
-    engine.add_model(landmarker)
-    engine.add_model(embedder)
+    processor = FaceProcessor()
+    processor.add_model(detector, 'detector')
+    processor.add_model(landmarker, 'landmarker')
+    processor.add_model(embedder, 'embedder')
 
-    # 遍历一个视频
-    data_root = app_root / 'data'
-
+    # 2.人脸识别模型
+    # 依赖：1) 人脸库  2) 向量化模型
     facedb = SimpleFaceDB(update_scheme='pose')  # update_scheme='pose'或'last'
+    if facedb_path and os.path.isfile(facedb_path):
+        facedb.load_db(facedb_path)
     recognizer = FaceRecognizer(embedder, facedb)
 
-    # 记录人脸
-    with FrameSampler(video_file=str(data_root / 'video' / 'movie.mp4'), sampling_fps=2) as sampler:
+    engine = Engine()
+    engine.processor = processor
+    engine.recognizer = recognizer
+    return engine
+
+
+def scan_faces(video_file: Union[str, Path], engine: Engine, sampling_fps: Union[int, float] = 2, k: int = 10):
+    processor = engine.processor
+    recognizer = engine.recognizer
+    with FrameSampler(video_file=video_file, sampling_fps=sampling_fps) as sampler:
         for i, frame in enumerate(sampler):
-            # cv2.imwrite(f'frame{i}.jpg', frame)
-            faces = engine.apply(frame)  # 面部检测-标记-向量
+            faces = processor.apply(frame)  # 面部检测-标记-向量
             for face in faces:
-                ret: int = recognizer.learn(face)
-            if i % 5 == 0:
-                facedb.export_face_images(data_root / 'faces')
+                ret: int = recognizer.learn(face)  #
+    # 人脸出现频率排序
+    most_faces: List[Tuple[str, int]] = recognizer.most_frequent_faces(k=k)
 
-    most_faces: List[Tuple[str, int]] = recognizer.most_frequent_faces()
-    recognizer.facedb.save_db(data_root / 'faces.pkl')
+    # *某些场景可能需要以下接口：
+    # 导出所有人脸图片
+    # recognizer.facedb.export_face_images(data_root / 'faces')
+    # 序列化/反序列化识别结果
+    # recognizer.facedb.save_db(data_root / 'faces.pkl')
+    # recognizer.facedb.load_db(data_root / 'faces.pkl')
 
-    recognizer.facedb.export_face_images(data_root / 'faces')
+    return most_faces
 
-    recognizer.facedb.load_db(data_root / 'faces.pkl')
+
+def rename_faces(engine: Engine, names: List[Tuple[str, str]]):
+    facedb: SimpleFaceDB = engine.recognizer.facedb
+    for old_name, new_name in names:
+        if not facedb.rename(old_name, new_name):
+            print(f"renaming {old_name} to {new_name} failed.")
+
+
+def save_facedb(engine: Engine, db_path: Union[str, Path]):
+    """保存人脸库"""
+    facedb: SimpleFaceDB = engine.recognizer.facedb
+    facedb.save_db(db_path=db_path)
+
+
+if __name__ == '__main__':
+    app_root = Path(__file__).parent.parent
+    model_root = app_root / 'models'
+    data_root = app_root / 'data'
+
+    # 启动人脸检测/识别模型和人脸库
+    engine = start_engine(app_root / 'face_detect', facedb_path=data_root / 'db/facedb.pkl')
+
+    # 遍历视频记录人脸
+    faces: List[Tuple[str, int]] = scan_faces(data_root / 'video/movie.mp4', engine=engine, sampling_fps=2, k=10)
+
+    # 换脸
+
 

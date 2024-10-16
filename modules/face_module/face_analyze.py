@@ -75,6 +75,13 @@ class FaceProcessor:
             self.model_index[model_name] = model
         return self
 
+    def get_model(self, model_name: str):
+        """获取指定model"""
+        model = None
+        if self.model_index:
+            model = self.model_index.get(model_name, None)
+        return model
+
     def reload(self):
         """释放->重新加载所有模型"""
         if self.models:
@@ -93,8 +100,8 @@ class FaceProcessor:
     def apply(self, img, model_names: List[str] = None) -> List[Face]:
         """
         应用模型
-        :param img:
-        :param model_names:
+        :param img: 输入图片
+        :param model_names: 如果不为None,则尝试按此顺序调用
         :return:
         """
         faces = []

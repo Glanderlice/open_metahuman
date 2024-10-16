@@ -1,9 +1,12 @@
+from pathlib import Path
+from typing import Union
+
 import cv2
 
 
 class FrameSampler:
 
-    def __init__(self, video_file: str, sampling_fps: int | float = 1):
+    def __init__(self, video_file: Union[str, Path], sampling_fps: int | float = 1):
         self.video_stream = video_stream = cv2.VideoCapture(video_file)
         # 源视频参数
         self.total_frames = int(video_stream.get(cv2.CAP_PROP_FRAME_COUNT))
