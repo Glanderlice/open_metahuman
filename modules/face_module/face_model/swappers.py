@@ -10,6 +10,7 @@ from onnx import numpy_helper
 from modules.face_module import face_align
 from modules.face_module.face_analyze import FaceModel, Face
 from utils.onnx_helper import build_session
+from utils.timer import timing
 
 
 class INSwapperOnnx(FaceModel):
@@ -58,11 +59,17 @@ class INSwapperOnnx(FaceModel):
         pred = self.session.run(self.output_names, {self.input_names[0]: img, self.input_names[1]: latent})[0]
         return pred
 
-    def apply(self, faces: List[Face] = None, src_img: np.ndarray = None, to_face: Face = None, extra: Dict[str, Any] = None):
+    @timing(gpu=True)
+    def apply(self, faces: List[Face] = None, src_img: np.ndarray = None, to_face: Face = None,
+              extra: Dict[str, Any] = None) -> np.ndarray:
         merged_img = src_img
         for face in faces:
-            merged_img = self.swap(merged_img, face.kps, to_face.vec, True)
+            # merged_img = self.swap(merged_img, face.kps, to_face.vec, True)
+            merged_img = self.apply_one(face, merged_img, to_face)
         return merged_img
+
+    def apply_one(self, face: Face, src_img: np.ndarray, to_face: Face, blend: float = 1.0) -> np.ndarray:
+        return self.swap(src_img, face.kps, to_face.vec, True, blend)
 
     def preprocess(self, face_vec):
         """
@@ -141,13 +148,14 @@ class INSwapperOnnx(FaceModel):
         fake_merged = fake_merged.astype(np.uint8)
         return fake_merged
 
-    def swap(self, img, cur_face_kps, dst_face_vec, paste_back=True):
+    def swap(self, img, cur_face_kps, dst_face_vec, paste_back=True, blend=1.0):
         """
         照片换脸
         :param img: 源图像
         :param cur_face_kps: 等待被替换的目标脸信息Face.kps关键点
         :param dst_face_vec: 通过w600k_r50.onnx人脸识别模型向量化后的模特人脸向量, (512,)
         :param paste_back: 变换后的脸是否融合回源图像
+        :param blend: 人脸混合度, 0完全原脸->1完全新脸
         :return: 融合图
         """
         dst_face_vec = self.preprocess(dst_face_vec)
@@ -195,6 +203,8 @@ class INSwapperOnnx(FaceModel):
             kernel_size = (k, k)
             blur_size = tuple(2 * i + 1 for i in kernel_size)
             fake_diff = cv2.GaussianBlur(fake_diff, blur_size, 0)
+            if 0 < blend < 0.99:
+                img_mask *= blend
             img_mask /= 255
             fake_diff /= 255
             # img_mask = fake_diff

@@ -107,8 +107,10 @@ class SimpleFaceDB:
     def rename(self, old_name: str, new_name: str):
         """人脸重命名：old_name -> new_name"""
         if old_name in self.face_index and new_name and new_name not in self.face_index:
-            self.face_index[new_name] = self.face_index[old_name]
+            face_data: FaceMeta = self.face_index[old_name]
             del self.face_index[old_name]
+            face_data.pid = new_name
+            self.face_index[new_name] = face_data
             return True
         else:
             return False

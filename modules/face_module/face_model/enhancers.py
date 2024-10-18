@@ -1,16 +1,11 @@
-from __future__ import division
-
 import os.path
-from pathlib import Path
 from typing import Tuple, List
 
 import cv2
 import numpy as np
 
-from core.face_module.face_analysis import FaceAnalyzer
-from core.face_module.face_meta import Face
-from deepfacelab.onnx_model.onnx_loader import inference_session_with_device
-from mediana.timer import timing
+from modules.face_module.face_analyze import Face
+from utils.onnx_helper import build_session
 
 
 def prepare_crop_frame(crop_frame: np.ndarray) -> np.ndarray:
@@ -55,20 +50,17 @@ def blend_frame(temp_frame: np.ndarray, paste_frame: np.ndarray, face_enhancer_b
     return temp_frame
 
 
-class FaceEnhancer:
+class GFPGANOnnx:
 
     def __init__(self, model_file=None, blend=100, device='cuda'):
-        if not model_file:  # 如果没有指定路径, 则在脚本当前所在目录下查找
-            path = Path(__file__).parent / 'GFPGANv1.4.onnx'
-            model_file = str(path)
-        print(f'face enhance model: {model_file}')
+        assert model_file and os.path.exists(model_file)
         self.model_file = model_file
-        assert self.model_file and os.path.exists(self.model_file)
+        self.device = device
+        print(f'face enhance model: {model_file}')
 
         self.blend = blend
 
-        self.session = inference_session_with_device(model_file, device)
-        self.device = device
+        self.session = build_session(model_file, device)
 
         inputs = self.session.get_inputs()
         outputs = self.session.get_outputs()
@@ -81,7 +73,11 @@ class FaceEnhancer:
         self.output_shape = outputs[0].shape
 
     def reload(self):
-        self.session = inference_session_with_device(self.model_file, self.device)
+        self.session = build_session(self.model_file, self.device)
+
+    def unload(self):
+        if self.session:
+            self.session = None
 
     def warp_face(self, target_face: Face, temp_frame: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
         template = np.array(
@@ -123,11 +119,11 @@ if __name__ == '__main__':
     src_image = cv2.imread('D:/PycharmProjects/aurora-studio/data/image/1.jpg')
 
     analyzer_model_dir = 'D:/PycharmProjects/aurora-studio/models/face/weights'
-    analyzer = FaceAnalyzer(analyzer_model_dir, landmark=True, attribute=True, vector=True)
+    analyzer = GFPGANOnnx(analyzer_model_dir, landmark=True, attribute=True, vector=True)
 
     faces = analyzer.apply(src_image, max_faces=10, vector=False)
 
-    enhancer = FaceEnhancer('D:/PycharmProjects/aurora-studio/models/face/weights/GFPGANv1.4.onnx')
+    enhancer = GFPGANOnnx('D:/PycharmProjects/aurora-studio/models/face/weights/GFPGANv1.4.onnx')
     out_image = src_image
     out_image = enhancer.enhance_faces(faces, out_image)
     # for face in faces:

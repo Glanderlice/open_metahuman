@@ -1,4 +1,5 @@
 
 /data/faces/
-/models/face_detect/
+/models/face_models/
 /data/db/
+/data/video/temp/

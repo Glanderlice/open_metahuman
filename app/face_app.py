@@ -1,86 +1,30 @@
 import os
+from ctypes import cdll
 from pathlib import Path
-from typing import List, Tuple, Union
+from typing import List, Tuple, Union, Dict, Any
 
 import cv2
-import numpy as np
+from tqdm import tqdm
 
-from modules.face_module.face_analyze import FaceProcessor, Face
+from modules.face_module.face_analyze import FaceProcessor, Face, draw_on
 from modules.face_module.face_model.detectors import RetinaFaceOnnx
 from modules.face_module.face_model.embedders import ArcFaceOnnx
+from modules.face_module.face_model.enhancers import GFPGANOnnx
 from modules.face_module.face_model.landmarkers import Landmark3d68ONNX
+from modules.face_module.face_model.swappers import INSwapperOnnx
 from modules.face_module.face_recog import FaceRecognizer, SimpleFaceDB
-from utils.image_helper import reverse_channel
-from utils.video_helper import FrameSampler
+from utils.file_util import clear_dir
+from utils.video_helper import FrameSampler, merge_videos_with_sliding_line
 
-
-def face_scan_image(img, max_faces=10, channel_order='BGR', detector: FaceProcessor = None):
-    """
-    收集图片中所有的人脸
-    :return:
-    """
-    # 点击时先清空人脸识别器的缓存, 删除记录的人脸信息
-    global recognizer
-
-    recognizer.clear()
-
-    if isinstance(img, str) and os.path.isfile(img):
-        img = cv2.imread(img)
-    elif isinstance(img, np.ndarray) and channel_order == 'RGB':
-        img = reverse_channel(img)  # RGB->BGR
-    else:
-        raise TypeError('img must be str or ndarray in BGR/RGB format')
-
-    faces: List[Face] = detector.apply(img)
-    recognizer.remember_faces(faces, position=None)
-
-    if image_data is not None:
-        if isinstance(image_data, str) and os.path.isfile(image_data):
-            image_data = cv2.imread(image_data)
-        if isinstance(image_data, np.ndarray):
-            image_data = reverse_channel(image_data)  # RGB->BGR
-            faces = frame_swapper.analyzer.apply(image_data, max_faces=keep_faces_num, vector=False)
-            frame_swapper.recognizer.remember_faces(faces, position=None)
-    elif video_file:
-        with FrameExtractor(video_file, sample_fps=sampling_fps) as extractor:  # 抽帧
-            total_frames = extractor.total_frames
-            fps = extractor.fps
-
-            max_frames = total_frames - fps
-            min_frames = min(int(5 * fps), max_frames)
-            end_frame = int(sampling_range * 0.01 * total_frames)
-            if end_frame > max_frames:
-                end_frame = None
-            elif end_frame < min_frames:
-                end_frame = min_frames
-
-            for frame in extractor:  # 遍历所有帧
-                frame_idx = extractor.frame_idx
-                if end_frame and frame_idx > end_frame:
-                    break
-                time_in_sec = int(extractor.frame_idx / fps)  # 当前帧位于第几秒(extractor.frame_idx从0开始)
-                faces = frame_swapper.analyzer.apply(frame, max_faces=keep_faces_num, vector=False)
-                frame_swapper.recognizer.remember_faces(faces, position=time_in_sec)
-                if time_in_sec % int(5 * sampling_fps) == 0:
-                    print(f'scanning faces in frame[{frame_idx}] at {time_in_sec} seconds of video')
-
-    faces = frame_swapper.recognizer.facedb.most_frequent_faces(k=keep_faces_num)  # 返回找到的脸,最多5个
-    persons, face_images = [], []
-    for face, freq in faces:
-        persons.append(face.person)
-        gender = ''
-        if face.gender is not None:
-            gender = '男' if face.gender else '女'
-        age = '?'
-        if face.age is not None:
-            age = face.age
-        face_images.append((face.image[:, :, ::-1], f'{face.person}:{gender} {age}岁 {freq}次'))
-
-    return gr.Gallery.update(value=face_images)
-
-
-def click_face_scan_btn(image_data, video_file, sampling_fps, sampling_range, keep_faces_num):
-    pass
+# opencv导出.mp4视频时依赖的外部DLL动态库
+app_root = Path(__file__).parent.parent
+dll_path = app_root / 'resources/openh264-1.8.0-win64.dll'
+assert os.path.exists(dll_path), '找不到动态库openh264-1.8.0-win64.dll'
+if os.path.exists(dll_path):
+    cdll.LoadLibrary(str(dll_path))  # 如果 DLL 文件存在，加载它
+    print(f"DLL 文件 {dll_path} 已加载")
+else:
+    print(f"DLL 文件 {dll_path} 不存在")
 
 
 class Engine:
@@ -140,6 +84,70 @@ def scan_faces(video_file: Union[str, Path], engine: Engine, sampling_fps: Union
     return most_faces
 
 
+def image2face(image_file: Union[str, Path], engine: Engine):
+    image = cv2.imread(str(image_file))
+    processor = engine.processor
+    face = processor.apply(image)[0]
+    return face
+
+
+def blend_curve(i, start_value, stop_value, start_frame, stop_frame):
+    if i < start_frame:
+        return start_value
+    elif i < stop_frame:
+        return start_value + (i - start_frame) * (stop_value - start_value) / float(stop_frame - start_frame)
+    else:
+        return stop_value
+
+
+def postprocess_faces(video_file: Union[str, Path], engine: Engine, swap_faces: Dict[str, Face], enhance: bool = True,
+                      save_as: Union[str, Path] = None, extra: Dict[str, Any] = None):
+    processor: FaceProcessor = engine.processor
+    recognizer: FaceRecognizer = engine.recognizer
+    swapper: INSwapperOnnx = engine.swapper if swap_faces else None
+    enhancer: GFPGANOnnx = engine.enhancer if enhance else None
+
+    extra = extra if extra is not None else {}
+
+    export_stream = None
+
+    with FrameSampler(video_file=video_file) as sampler:
+        if save_as is not None:
+            save_as = str(save_as)
+            export_stream = cv2.VideoWriter(save_as, cv2.VideoWriter_fourcc(*'avc1'), sampler.fps,
+                                            (sampler.frame_w, sampler.frame_h))
+        # parse extra parameters
+        draw_rect = extra.get('draw_rect', False)
+        save_frames_dir = str(extra.get('save_frame', None))
+        if save_frames_dir:
+            clear_dir(save_frames_dir)
+
+        for i, frame in enumerate(tqdm(sampler, desc="Processing frames")):
+            faces = processor.apply(frame)
+            for face in faces:
+                # 照片换脸
+                if swapper:
+                    person: str = recognizer.search(face)
+                    to_face: Face = swap_faces.get(person, None)
+                    if to_face is not None:
+                        frame = swapper.apply_one(face, frame, to_face,
+                                                  blend=1.0)  # blend = blend_curve(i, 0.1, 1.0, 20, 90)
+                # 人脸超分
+                if enhancer:
+                    frame = enhancer.enhance(face, frame)
+
+            if draw_rect:
+                frame = draw_on(frame, faces)
+            if save_frames_dir:
+                cv2.imwrite(f"{save_frames_dir}/frame_{i:06}.jpg", frame)
+
+            if export_stream is not None:
+                export_stream.write(frame)
+
+    if export_stream is not None:
+        export_stream.release()
+
+
 def rename_faces(engine: Engine, names: List[Tuple[str, str]]):
     facedb: SimpleFaceDB = engine.recognizer.facedb
     for old_name, new_name in names:
@@ -153,17 +161,36 @@ def save_facedb(engine: Engine, db_path: Union[str, Path]):
     facedb.save_db(db_path=db_path)
 
 
+def merge_videos(video_src: Union[str, Path], video_dst: Union[str, Path], video_output: Union[str, Path]):
+    merge_videos_with_sliding_line(video_src, video_dst, video_output, speedx=3, offset=0)
+
+
 if __name__ == '__main__':
-    app_root = Path(__file__).parent.parent
-    model_root = app_root / 'models'
+    model_root = app_root / 'models/face_models'
     data_root = app_root / 'data'
 
     # 启动人脸检测/识别模型和人脸库
-    engine = start_engine(app_root / 'face_detect', facedb_path=data_root / 'db/facedb.pkl')
+    engine = start_engine(model_root, facedb_path=data_root / 'db/facedb.pkl')
 
     # 遍历视频记录人脸
     faces: List[Tuple[str, int]] = scan_faces(data_root / 'video/movie.mp4', engine=engine, sampling_fps=2, k=10)
+    rename_faces(engine, [('face_0', 'gold_woman'), ('face_1', 'natasha')])
 
-    # 换脸
+    # 人脸置换
+    engine.swapper = INSwapperOnnx(model_root / 'inswapper_128.onnx', device='gpu')
+    dst_face = image2face(data_root / 'image/jay.png', engine=engine)
 
+    # 人脸超清
+    engine.enhancer = GFPGANOnnx(model_root / 'GFPGANv1.4.onnx', device='gpu')
 
+    # 后处理：人脸置换, 人脸超分
+    swap_scheme = {'gold_woman': dst_face, 'natasha': dst_face}
+    options = {'save_frame': data_root / 'temp/frames', 'draw_rect': False}
+
+    save_path = data_root / 'temp/output.mp4'
+    postprocess_faces(data_root / 'video/movie.mp4', engine, swap_faces=swap_scheme, enhance=False, save_as=save_path,
+                      extra=options)
+
+    # merge_videos()
+
+    print('end')

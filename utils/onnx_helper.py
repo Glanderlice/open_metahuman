@@ -22,11 +22,21 @@ def build_session(onnx_model_path, device='cpu', verify=False):
         raise ValueError(f'{device} is not available in onnxruntime')
     # verify onnx model
     if verify:
-        onnx_model = onnx.load("super_resolution.onnx")
+        onnx_model = onnx.load(onnx_model_path)
         onnx.checker.check_model(onnx_model)
         del onnx_model
 
     return ort.InferenceSession(onnx_model_path, providers=[device])
+
+
+def onnx_cuda_test():
+    """如果报错则无法正常调用cuda进行推理加速,可能是cudnn库没有被正确安装和配置"""
+    print(ort.__version__)
+    print(ort.get_device())  # 如果得到的输出结果是GPU，所以按理说是找到了GPU的
+
+    ort_session = ort.InferenceSession("/models/face_models/det_10g.onnx",
+                                       providers=['CUDAExecutionProvider'])
+    print(ort_session.get_providers())
 
 
 def to_numpy(tensor):
