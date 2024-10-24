@@ -1,5 +1,15 @@
+from pathlib import Path
+
 import onnxruntime as ort
 import onnx
+
+# log level:
+# 0: ORT_LOGGING_LEVEL_VERBOSE
+# 1: ORT_LOGGING_LEVEL_INFO
+# 2: ORT_LOGGING_LEVEL_WARNING
+# 3: ORT_LOGGING_LEVEL_ERROR
+# 4: ORT_LOGGING_LEVEL_FATAL
+ort.set_default_logger_severity(3)
 
 
 def build_session(onnx_model_path, device='cpu', verify=False):
@@ -33,11 +43,17 @@ def onnx_cuda_test():
     """如果报错则无法正常调用cuda进行推理加速,可能是cudnn库没有被正确安装和配置"""
     print(ort.__version__)
     print(ort.get_device())  # 如果得到的输出结果是GPU，所以按理说是找到了GPU的
-
-    ort_session = ort.InferenceSession("/models/face_models/det_10g.onnx",
+    Path()
+    app_root = Path(__file__).parent.parent
+    print(app_root / "models/face_models/det_10g.onnx")
+    ort_session = ort.InferenceSession(app_root / "models/face_models/det_10g.onnx",
                                        providers=['CUDAExecutionProvider'])
     print(ort_session.get_providers())
 
 
 def to_numpy(tensor):
     return tensor.detach().cpu().numpy() if tensor.requires_grad else tensor.cpu().numpy()
+
+
+if __name__ == '__main__':
+    onnx_cuda_test()

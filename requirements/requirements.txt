@@ -1,6 +1,9 @@
 opencv-python==4.5.5.64
-scikit-image
+torch==2.4.1
+omegaconf
 onnx
 onnxruntime-gpu
 GPUtil
-cython
+scikit-image
+huggingface
+huggingface_hub
