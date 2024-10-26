@@ -5,7 +5,7 @@ import cv2
 import numpy as np
 
 from modules.face_module.face_analyze import FaceModel, Face
-from utils.onnx_helper import build_session
+from tool.onnx_helper import build_session
 
 
 def softmax(z):

@@ -9,8 +9,8 @@ from onnx import numpy_helper
 
 from modules.face_module import face_align
 from modules.face_module.face_analyze import FaceModel, Face
-from utils.onnx_helper import build_session
-from utils.timer import timing
+from tool.onnx_helper import build_session
+from tool.timer import timing
 
 
 class INSwapperOnnx(FaceModel):

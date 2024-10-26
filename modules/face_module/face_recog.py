@@ -8,8 +8,8 @@ import numpy as np
 
 from modules.face_module.face_analyze import Face
 from modules.face_module.face_model.embedders import ArcFaceOnnx
-from utils.file_util import clear_dir
-from utils.image_helper import cal_overlap
+from tool.file_util import clear_dir
+from tool.image_helper import cal_overlap
 
 
 def _ann_top_1(vector: np.ndarray, vector_index: Dict[str, Any]):

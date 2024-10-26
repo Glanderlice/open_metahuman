@@ -12,7 +12,7 @@ __all__ = [
 
 from modules.face_module import face_align
 from modules.face_module.face_analyze import FaceModel, Face
-from utils.onnx_helper import build_session
+from tool.onnx_helper import build_session
 
 
 class Landmark3d68ONNX(FaceModel):

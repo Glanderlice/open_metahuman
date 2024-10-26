@@ -1,6 +1,6 @@
 task_0:
- video_path: "../data/video/yongen.mp4"
- audio_path: "../data/audio/yongen.wav"
+ video_path: "../data/video/dh_2.mp4"
+ audio_path: "../data/audio/taiwan.wav"
 
 task_1:
  video_path: "../data/video/sun.mp4"
