@@ -13,8 +13,8 @@ from modules.face_module.face_model.enhancers import GFPGANOnnx
 from modules.face_module.face_model.landmarkers import Landmark3d68ONNX
 from modules.face_module.face_model.swappers import INSwapperOnnx
 from modules.face_module.face_recog import FaceRecognizer, SimpleFaceDB
-from utils.file_util import clear_dir
-from utils.video_helper import FrameSampler, merge_videos_with_sliding_line
+from tool.file_util import clear_dir
+from tool.video_helper import FrameSampler, merge_videos_with_sliding_line
 
 # opencv导出.mp4视频时依赖的外部DLL动态库
 app_root = Path(__file__).parent.parent
