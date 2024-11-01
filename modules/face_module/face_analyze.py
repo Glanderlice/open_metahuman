@@ -55,7 +55,7 @@ class FaceModel(ABC):
         pass
 
 
-class FaceProcessor:
+class FaceAnalyzer:
     """
     人脸分析器：对单个图片进行人脸检测, 并对每个识别出的人脸进行关键点标记、性别年龄估计、向量化, 并输出List[Face]
     可以直接init初始化所有模型, 模型是默认的.onnx, 除检测模型是初始化阶段必须的外, 其他的模型可以不实例化, 而是自定义进行单独模型的加载

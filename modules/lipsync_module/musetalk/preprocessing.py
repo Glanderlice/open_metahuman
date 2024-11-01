@@ -10,7 +10,7 @@ from mmpose.apis import inference_topdown, init_model
 from mmpose.structures import merge_data_samples
 from tqdm import tqdm
 
-from modules.face_module.face_analyze import Face, FaceProcessor
+from modules.face_module.face_analyze import Face, FaceAnalyzer
 from modules.face_module.face_model.detectors import RetinaFaceOnnx
 from modules.face_module.face_model.landmarkers import Landmark3d68ONNX
 from modules.lipsync_module.musetalk.face_detection import FaceAlignment, LandmarksType
@@ -40,7 +40,7 @@ model_root = Path('D:/PycharmProjects/open_metahuman/models/face_models')
 detector = RetinaFaceOnnx(model_file=model_root / 'det_10g.onnx', device='cpu', det_size=(640, 640),
                           max_faces=5)  # 人脸检测
 landmarker = Landmark3d68ONNX(model_file=model_root / '1k3d68.onnx', device='cpu')  # 关键点标记
-processor = FaceProcessor()
+processor = FaceAnalyzer()
 processor.add_model(detector, 'detector')
 processor.add_model(landmarker, 'landmarker')
 

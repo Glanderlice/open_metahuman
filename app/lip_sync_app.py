@@ -14,7 +14,7 @@ import copy
 
 import shutil
 
-from modules.face_module.face_analyze import FaceProcessor, Face
+from modules.face_module.face_analyze import FaceAnalyzer, Face
 from modules.face_module.face_model.detectors import RetinaFaceOnnx
 from modules.face_module.face_model.landmarkers import Landmark3d68ONNX
 from modules.lipsync_module.musetalk.blending import get_image

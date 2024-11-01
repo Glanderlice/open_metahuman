@@ -63,6 +63,7 @@ class SimpleFaceDB:
         :param update_scheme: None/'last'/'pose', 默认None即保留第一张人脸, last保留最后的人脸, pose保留姿态最好的人脸
         """
         self.face_index = {}
+        self.counter = {}
         self.scheme = update_scheme
 
     def add(self, pid, vector, image, pose=None):
@@ -74,6 +75,9 @@ class SimpleFaceDB:
         :param pose: 人脸姿态数组
         :return: 0不变, 1新增, 2替换
         """
+        # 记录次数
+        self.counter[pid] = self.counter.get(pid, 0) + 1
+
         face = FaceMeta(pid, vector, image, pose)
         ret = 0  # 未变更
         if pid not in self.face_index:
@@ -132,11 +136,12 @@ class SimpleFaceDB:
 
     def clear(self):
         self.face_index.clear()
+        self.counter.clear()
 
     def save_db(self, db_path):
         """人脸数据序列化到文件"""
-        all_data = self.face_index
-        if all_data:
+        if self.face_index:
+            all_data = {"index": self.face_index, "count": self.counter}
             # 后缀统一改为.pkl
             filepath, extension = os.path.splitext(db_path)
             filepath = f'{filepath}.pkl'
@@ -154,6 +159,9 @@ class SimpleFaceDB:
 
     def load_db(self, db_path):
         """从文件反序列化人脸数据"""
+        self.clear()  # 先清理掉缓存
+
+        loaded: bool = False
         if os.path.isfile(db_path):
             _, extension = os.path.splitext(db_path)
             if extension != '.pkl':
@@ -162,12 +170,15 @@ class SimpleFaceDB:
             with open(db_path, 'rb') as file:
                 loaded_dict = pickle.load(file)
                 if loaded_dict:
-                    self.face_index = loaded_dict
+                    self.face_index, self.counter = loaded_dict['index'], loaded_dict['count']
+                    loaded = True if self.face_index else False
                     print(f'{len(self.face_index)} data load from {db_path}')
                 else:
                     print(f'no data load from {db_path}')
         else:
             print(f'db file {db_path} not exist')
+
+        return loaded
 
 
 class FaceRecognizer:
@@ -180,22 +191,11 @@ class FaceRecognizer:
         self.input_size = embed_model.input_size
         self.facedb = facedb
         self.tracker = []
-        self.counter = {}
         self.person_idx = 0
 
     def vectorize(self, align_face):
         """输入需要是矫正对齐的正方形人脸图"""
         return self.embed_model.vectorize(align_face)[0]  # 该接口返回(batch, 512), 此处强行取第一个
-
-    # def remember_faces(self, faces: List[Face], position=None):
-    #     suc = 0
-    #     for face in faces:
-    #         state, info = self.remember(face, True, position)
-    #         if state:
-    #             suc += 1
-    #         # if debug:
-    #         #     cv2.imwrite('D:/PycharmProjects/aurora-studio/data/image/face_section.jpg', face.picture)
-    #     return suc
 
     def learn(self, face: Face):
         """
@@ -211,9 +211,6 @@ class FaceRecognizer:
         else:  # 未找到->发现新人脸,插入人脸库
             person = f'face_{self.person_idx}'
             self.person_idx += 1
-
-        # 记录次数
-        self.counter[person] = self.counter.get(person, 0) + 1
 
         # 录入人脸
         state = self.facedb.add(person, face.vec, face.face_img, face.pose)
@@ -299,7 +296,7 @@ class FaceRecognizer:
         :param k: 返回多少个, 默认None为返回全部
         :return: list[tuple[人脸数据, 出现次数]]
         """
-        counter: Dict[str, int] = self.counter
+        counter: Dict[str, int] = self.facedb.counter
         if not counter:
             return None
         sorted_keys = sorted(counter, key=lambda k: counter[k], reverse=True)  # 降序
