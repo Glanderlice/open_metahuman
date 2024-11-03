@@ -6,7 +6,6 @@ from typing import List, Tuple, Union, Dict, Any
 import cv2
 import numpy as np
 from tqdm import tqdm
-from typer import Option
 
 from modules.face_module.face_analyze import FaceAnalyzer, Face, draw_on
 from modules.face_module.face_model.detectors import RetinaFaceOnnx
@@ -421,7 +420,7 @@ def web_app():
         gallery.select(select_src_face, None, [src_face, src_name])
         swap_button.click(swap, [video_in, src_name, dst_face, face_sr, swap_prog], video_out)
 
-    face_app.launch()
+    face_app.launch(allowed_paths=[str(cache_root)])
 
 
 if __name__ == '__main__':
