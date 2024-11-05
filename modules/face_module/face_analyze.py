@@ -24,16 +24,19 @@ class Face:
         # 人脸姿态
         self.pose = None
 
-    def add_attribute(self, key: str, value: Any):
-        """动态添加新属性, 如:\n
-        *基础关键点kps(retinaface检测时会同时输出5个关键点)
-        *头部姿态pose(landmark模型的额外输出)\n
-        *性别年龄age,gender等等"""
-        setattr(self, key, value)
+    # def add_attribute(self, key: str, value: Any):
+    #     """动态添加新属性, 如:\n
+    #     *基础关键点kps(retinaface检测时会同时输出5个关键点)
+    #     *头部姿态pose(landmark模型的额外输出)\n
+    #     *性别年龄age,gender等等"""
+    #     setattr(self, key, value)
 
     def deep_copy(self):
         """返回Face对象的深拷贝"""
         return deepcopy(self)
+
+    # def __reduce__(self):
+    #     return self.__class__, (self.face_img, self.bbox, self.kps, self.landmark, self.vec, self.pose)  # 反序列化
 
 
 class FaceModel(ABC):

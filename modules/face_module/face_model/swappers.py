@@ -1,5 +1,5 @@
 import os
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Tuple
 
 import cv2
 import numpy as np
@@ -70,6 +70,13 @@ class INSwapperOnnx(FaceModel):
 
     def apply_one(self, face: Face, src_img: np.ndarray, to_face: Face, blend: float = 1.0) -> np.ndarray:
         return self.swap(src_img, face.kps, to_face.vec, True, blend)
+
+    def swap_frame(self, frame: np.ndarray, faces: List[Tuple[Any, str]], to_face: Face, blend_value: float,
+                   image_path: str) -> bool:
+        for face, person in faces:
+            frame = self.apply_one(face, frame, to_face, blend=blend_value)
+        success = cv2.imwrite(image_path, frame, [cv2.IMWRITE_PNG_COMPRESSION, 0])
+        return success
 
     def preprocess(self, face_vec):
         """
@@ -148,9 +155,10 @@ class INSwapperOnnx(FaceModel):
         fake_merged = fake_merged.astype(np.uint8)
         return fake_merged
 
+    # @timing()
     def swap(self, img, cur_face_kps, dst_face_vec, paste_back=True, blend=1.0):
         """
-        照片换脸
+        照片换脸, 大约195ms(video1.mp4)
         :param img: 源图像
         :param cur_face_kps: 等待被替换的目标脸信息Face.kps关键点
         :param dst_face_vec: 通过w600k_r50.onnx人脸识别模型向量化后的模特人脸向量, (512,)
@@ -241,15 +249,3 @@ class INSwapperOnnx(FaceModel):
             for i, bgr_fake in enumerate(bgr_fakes):
                 merged_img = self._paste(merged_img, bgr_fake, aligned_faces[i], matrices[i])
             return merged_img
-
-    def swap_many(self, img, faces_kps, dst_face_vecs):
-        """
-        照片换脸
-        :param img: 源图像
-        :param faces_kps: 当前图中所有待替换的目标人脸关键点列表, list(target.kps)
-        :param dst_face_vecs: w600k_r50.onnx向量化的所有对应的模特人脸向量列表, list(model.vector)
-        :return: 融合图
-        """
-        for i, kps in enumerate(faces_kps):
-            img = self.swap(img, kps, dst_face_vecs[i], paste_back=True)
-        return img

@@ -1,5 +1,6 @@
 transformers
 diffusers
+omegaconf
 ffmpeg-python
 more-itertools
 accelerate

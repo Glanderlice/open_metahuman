@@ -103,6 +103,13 @@ class GFPGANOnnx:
         input_frame = blend_frame(input_frame, paste_frame, self.blend)
         return input_frame
 
+    def enhance_frame(self, frame: np.ndarray, target_faces: List[Face]):
+        if target_faces:
+            for face in target_faces:
+                frame = self.enhance(face, frame)
+        return frame
+
+
     # @timing(interval=10, gpu=True)
     def enhance_faces(self, target_faces: List[Face], input_frame: np.ndarray, mask=None):
         # 无法改成batch推理：Name:'/final_linear/Gemm' Status Message: GEMM: Dimension mismatch, W: {8192,4096} K: 24576 N:8192

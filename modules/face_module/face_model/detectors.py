@@ -6,6 +6,7 @@ import numpy as np
 
 from modules.face_module.face_analyze import FaceModel, Face
 from tool.onnx_helper import build_session
+from tool.timer import timing
 
 
 def softmax(z):
@@ -94,7 +95,9 @@ class RetinaFaceOnnx(FaceModel):
         if self.session:
             self.session = None
 
+    # @timing()
     def apply(self, faces: List[Face] = None, src_img: np.ndarray = None, extra: Dict[str, Any] = None) -> List[Face]:
+        """大约15ms(video1.mp4)"""
         bboxes, kpss = self.detect(src_img)
         det_num = 0 if bboxes is None else bboxes.shape[0]
         faces = [] if faces is None else faces

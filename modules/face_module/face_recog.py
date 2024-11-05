@@ -1,6 +1,7 @@
 import heapq
 import os
 import pickle
+from collections import deque
 from typing import List, Tuple, Optional, Dict, Any
 
 import cv2
@@ -12,18 +13,46 @@ from tool.file_util import clear_dir
 from tool.image_helper import cal_overlap
 
 
-def _ann_top_1(vector: np.ndarray, vector_index: Dict[str, Any]):
+class FaceMeta:
+    """
+    person: 这是谁的脸
+    vector: 脸向量(仅对应特定模型,例如facenet与arcface的向量完全不一样)
+    image:  脸部图像(从原图裁剪->对齐)
+    pose: 脸部姿态
+    """
+
+    def __init__(self, pid, vec, image=None, pose=None, position=None):
+        self.pid = pid
+        self.vec = vec
+        self.image = image
+        self.pose = pose
+
+    def __reduce__(self):
+        return self.__class__, (self.pid, self.vec, self.image, self.pose)  # 反序列化
+
+    def __str__(self):
+        return f'{self.pid}:vector={0 if self.vec is None else 1},image={0 if self.image is None else 1}'
+
+    def __repr__(self):
+        return self.__str__()
+
+
+def _ann_top_1(vector: np.ndarray, vector_index: Dict[str, FaceMeta], ranges: List[str] = None):
     """for循环搜索人脸向量库"""
     find_person, max_sim = None, 0
-    for p, face_data in vector_index.items():
-        sim = _cosine_sim(vector, face_data.vec)
-        ret = _classify(sim)
-        if ret > 0 and sim > max_sim:
-            find_person, max_sim = face_data, sim  # 找到了
+    ranges = ranges if ranges else vector_index
+    for p in ranges:
+        face_data = vector_index.get(p, None)
+        if face_data is not None:
+            sim = _cosine_sim(vector, face_data.vec)
+            ret = _classify(sim)
+            if ret > 0 and sim > max_sim:
+                find_person, max_sim = face_data, sim  # 找到了
     return [(find_person, max_sim)]  # 只会返回最相似的(人,相似值),或者(None,阈值)
 
 
-def _ann_top_k(vector: np.ndarray, k: int, vector_index: Dict[str, Any]) -> List[Tuple[object, float]]:
+def _ann_top_k(vector: np.ndarray, k: int, vector_index: Dict[str, FaceMeta], ranges: List[str] = None) -> List[
+    Tuple[object, float]]:
     """
     搜索人脸向量库，返回最相似的 topk 个结果。
     Args:
@@ -34,8 +63,9 @@ def _ann_top_k(vector: np.ndarray, k: int, vector_index: Dict[str, Any]) -> List
     """
     # 使用优先队列维护top k个相似结果
     top_k_heap = []
-
-    for p, face_data in vector_index.items():
+    ranges = ranges if ranges else vector_index
+    for p in ranges:
+        face_data = vector_index.get(p, None)
         sim = _cosine_sim(vector, face_data.vec)
         ret = _classify(sim)
         if ret > 0:
@@ -101,12 +131,12 @@ class SimpleFaceDB:
                 ret = 2
         return ret
 
-    def ann_search(self, vector: np.ndarray, k: int = 1) -> List[Tuple[Any, float]]:
+    def ann_search(self, vector: np.ndarray, k: int = 1, ranges: List[str] = None) -> List[Tuple[Any, float]]:
         assert k > 0
         if k == 1:
-            return _ann_top_1(vector, self.face_index)
+            return _ann_top_1(vector, self.face_index, ranges)
         else:
-            return _ann_top_k(vector, k, self.face_index)
+            return _ann_top_k(vector, k, self.face_index, ranges)
 
     def rename(self, old_name: str, new_name: str):
         """人脸重命名：old_name -> new_name"""
@@ -190,12 +220,8 @@ class FaceRecognizer:
         self.embed_model = embed_model
         self.input_size = embed_model.input_size
         self.facedb = facedb
-        self.tracker = []
+        self.tracker = deque(maxlen=4)
         self.person_idx = 0
-
-    def vectorize(self, align_face):
-        """输入需要是矫正对齐的正方形人脸图"""
-        return self.embed_model.vectorize(align_face)[0]  # 该接口返回(batch, 512), 此处强行取第一个
 
     def learn(self, face: Face):
         """
@@ -216,26 +242,23 @@ class FaceRecognizer:
         state = self.facedb.add(person, face.vec, face.face_img, face.pose)
         return state
 
-    def _track(self, det_box, iou_thresh, dst_thresh):
+    def _track(self, det_box, frame_idx, iou_thresh, dst_thresh):
         """输入det_box必须是对角点np.array(x1,y1,x2,y2), shape=(4,)"""
-        idx, max_iou, dst, find = -1, 0, 100, None
-        for i, triple in enumerate(self.tracker):
-            box, person, ttl = triple
-            iou, distance = cal_overlap(det_box, box)  # 重合度
-            if iou >= iou_thresh and distance <= dst_thresh:
-                idx, max_iou, dst, find = i, iou, distance, person
-                iou_thresh = max_iou
-        return idx, max_iou, dst, find
+        max_iou, dst, find = 0, 100, None
+        for frame_i, boxes in reversed(self.tracker):
+            if frame_i < frame_idx:
+                for box, person in boxes:
+                    iou, distance = cal_overlap(det_box, box)  # 重合度
+                    if iou >= iou_thresh and distance <= dst_thresh:
+                        max_iou, dst, find = iou, distance, person
+                        iou_thresh = max_iou
+        return max_iou, dst, find
 
-    def _search_by_track(self, det_box):
-        idx, iou, dst, tracked_pid = self._track(det_box, 0.90, 10)  # 追踪缓存的识别框
+    def _search_by_track(self, det_box, frame_idx):
+        iou, dst, tracked_pid = self._track(det_box, frame_idx, 0.90, 10)  # 追踪缓存的识别框
+        return tracked_pid
 
-        if tracked_pid and iou > 0.95 and dst < 5:  # 识别框高度重合->直接判断是缓存的那个人(buffered)
-            # if iou > 0.99 and dst < 1: 如果重合度超过99%, 则更新追踪器的缓存, 这样可以减少人脸识别的次数
-            self._update_tracker(idx, det_box, tracked_pid, ttl=3)
-        return tracked_pid, idx
-
-    def _search_by_vector(self, face: Face):
+    def vectorize(self, face: Face, inplace=True):
         face_vec = face.vec
         if face_vec is None:
             align_face: np.ndarray = face.face_img  # 对齐后的人脸, size未知, 但必须是正方形
@@ -244,51 +267,69 @@ class FaceRecognizer:
                 raise ValueError(f'face.H==face.W is required {h, w}')
             if (w, h) != self.input_size:
                 align_face = cv2.resize(align_face, self.input_size)  # 输入人脸图像缩放(W,H)
-            face_vec = self.embed_model.vectorize(align_face)
-            face.vec = face_vec
+            face_vec = self.embed_model.vectorize(align_face)[0]  # 该接口返回(batch, 512), 此处强行取第一个
+            if inplace:
+                face.vec = face_vec
+        return face_vec
 
-        face_data, sim = self.facedb.ann_search(face_vec)[0]
+    def _search_by_vector(self, face: Face, ranges: List[str] = None):
+        face_vec = self.vectorize(face, inplace=True)
+        face_data, sim = self.facedb.ann_search(face_vec, 1, ranges)[0]
         return face_data, sim
 
+    def _verify(self, face: Face, person: str):
+        ret = -1
+        if person:
+            face_data = self.facedb.get(person)
+            if face_data is not None:
+                face_vec = self.vectorize(face, inplace=True)
+                sim = _cosine_sim(face_vec, face_data.vec)
+                ret = _classify(sim)
+        return ret
+
     # @timing(interval=60)
-    def search(self, face: Face, force_ann: bool = False):
+    def search(self, face: Face, frame_idx: int = None, persons: List[str] = None):
         """
         联合识别：先使用检测框追踪track, 再对不那么确定的使用人脸识别search
         :param face: 人脸
-        :param force_ann: 强制执行ANN向量搜索
+        :param frame_idx: 当前帧数, 用于更新deque
+        :param persons: 缩小搜索范围
         :return: 记忆中的人物
         """
-        # 1.面部追踪(基于历史)
+        # 1.面部追踪(较快)
         det_box = face.bbox
         if det_box.shape == (4, 2):
             det_box = det_box[[0, 2]].ravel()  # 先变成对角点, 然后拉平成shape=(4,)
-        tracked_pid, idx = self._search_by_track(det_box)  # 与前几帧的人脸位置最相近的人
+        target = self._search_by_track(det_box, frame_idx)  # 与前几帧的人脸位置最相近的人
 
-        target = tracked_pid
+        if target:
+            if self._verify(face, target) < 0:
+                print(f'同一检测框中追踪({target})与识别结果不一致')
+                target = None
 
-        # 2.位置不够精确/想强行人脸识别->人脸识别(搜人脸库)
-        if tracked_pid is None or force_ann:
-            face_data, sim = self._search_by_vector(face)
+        if target is None:
+            # 检索(较慢):人脸识别(搜人脸库)
+            face_data, sim = self._search_by_vector(face, None)
             if face_data:  # 人脸识别成功
                 target = face_data.pid
 
-                if tracked_pid and target != tracked_pid:  # 告警: 识别出的人脸和位置记录的人脸有出入
-                    print(f'同一检测框中追踪与识别结果不一致: 追踪={tracked_pid} replaced by 识别={target}')
-
-                # 人脸识别将强制矫正当前身份
-                self._update_tracker(idx, det_box, target, ttl=3)
+        if target and (persons is None or target in persons):
+            self._update_tracker(det_box, target, frame_idx)
 
         return target
 
-    def _update_tracker(self, idx, det_box, person, ttl):
-        """输入det_box必须是对角点np.array(x1,y1,x2,y2), shape=(4,)"""
-        if idx < 0:
-            self.tracker.append((det_box, person, ttl))  # 添加
-        else:
-            self.tracker[idx] = (det_box, person, ttl)  # 替换
+    def _update_tracker(self, det_box, person, frame_idx=None):
+        """输入 det_box 必须是对角点 np.array(x1, y1, x2, y2), shape=(4,)"""
+        dq = self.tracker
 
-    def countdown_tracker(self):
-        self.tracker = [(rect, person, ttl - 1) for rect, person, ttl in self.tracker if ttl > 0]
+        # 检查是否需要创建新的队尾元素
+        if not dq or (frame_idx is not None and 0 <= frame_idx != dq[-1][0]):
+            last = []
+            dq.append((frame_idx, last))  # 新增队尾元素
+        else:
+            last = dq[-1][1]  # 获取现有的队尾元素列表
+
+        last.append((det_box, person))  # 追加新数据
 
     def most_frequent_faces(self, k: Optional[int] = None):
         """
@@ -332,27 +373,3 @@ def _classify(sim, model='arcface'):
             return 1
     else:
         raise NotImplementedError
-
-
-class FaceMeta:
-    """
-    person: 这是谁的脸
-    vector: 脸向量(仅对应特定模型,例如facenet与arcface的向量完全不一样)
-    image:  脸部图像(从原图裁剪->对齐)
-    pose: 脸部姿态
-    """
-
-    def __init__(self, pid, vec, image=None, pose=None, position=None):
-        self.pid = pid
-        self.vec = vec
-        self.image = image
-        self.pose = pose
-
-    def __reduce__(self):
-        return self.__class__, (self.pid, self.vec, self.image, self.pose)  # 反序列化
-
-    def __str__(self):
-        return f'{self.pid}:vector={0 if self.vec is None else 1},image={0 if self.image is None else 1}'
-
-    def __repr__(self):
-        return self.__str__()

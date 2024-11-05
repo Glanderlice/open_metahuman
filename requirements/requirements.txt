@@ -1,6 +1,5 @@
 opencv-python
 torch==2.4.1
-omegaconf
 onnx
 onnxruntime-gpu
 GPUtil

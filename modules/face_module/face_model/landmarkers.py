@@ -13,6 +13,7 @@ __all__ = [
 from modules.face_module import face_align
 from modules.face_module.face_analyze import FaceModel, Face
 from tool.onnx_helper import build_session
+from tool.timer import timing
 
 
 class Landmark3d68ONNX(FaceModel):
@@ -81,7 +82,9 @@ class Landmark3d68ONNX(FaceModel):
         if self.session:
             self.session = None
 
+    # @timing()
     def apply(self, faces: List[Face] = None, src_img: np.ndarray = None, extra: Dict[str, Any] = None) -> List[Face]:
+        """大约10ms(video1.mp4)"""
         if faces:
             for face in faces:
                 face.landmark, face.pose = self.mark(src_img, face.bbox)  # pose只有在3D关键点标记才有值,否则返回None

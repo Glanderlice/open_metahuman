@@ -7,6 +7,7 @@ import numpy as np
 from modules.face_module import face_align
 from modules.face_module.face_analyze import FaceModel, Face
 from tool.onnx_helper import build_session
+from tool.timer import timing
 
 
 class ArcFaceOnnx(FaceModel):
@@ -44,7 +45,9 @@ class ArcFaceOnnx(FaceModel):
         if self.session:
             self.session = None
 
+    # @timing()
     def apply(self, faces: List[Face] = None, src_img: np.ndarray = None, extra: Dict[str, Any] = None) -> List[Face]:
+        """大约10ms(video1.mp4)"""
         if faces:
             for face in faces:
                 aligned_face = face.face_img

@@ -43,7 +43,7 @@ def onnx_cuda_test():
     """如果报错则无法正常调用cuda进行推理加速,可能是cudnn库没有被正确安装和配置"""
     print(ort.__version__)
     print(ort.get_device())  # 如果得到的输出结果是GPU，所以按理说是找到了GPU的
-    Path()
+
     app_root = Path(__file__).parent.parent
     print(app_root / "models/face_models/det_10g.onnx")
     ort_session = ort.InferenceSession(app_root / "models/face_models/det_10g.onnx",
